@@ -21,7 +21,7 @@ A professional BepInEx modding workspace for {{GAME_DISPLAY_NAME}} with automate
 
 2. **Build a mod**:
    ```bash
-   dotnet build src/{{EXAMPLE_MOD_NAME}}/{{EXAMPLE_MOD_NAME}}.csproj -c Debug
+   dotnet build src/ExampleMod/ExampleMod.csproj -c Debug
    ```
 
 3. **Test in game** - The mod DLL is auto-copied to your BepInEx plugins folder!

@@ -88,27 +88,27 @@ function Get-UnityVersion($gameDirectory) {
 
 function Get-UserInput($prompt, $default = "") {
     if ($default) {
-        $input = Read-Host "$prompt [$default]"
-        if ($input) { 
-            return $input 
+        $userInput = Read-Host "$prompt [$default]"
+        if ($userInput) { 
+            return $userInput 
         } else { 
             return $default 
         }
     } else {
         do {
-            $input = Read-Host $prompt
-        } while ([string]::IsNullOrWhiteSpace($input))
-        return $input.Trim()
+            $userInput = Read-Host $prompt
+        } while ([string]::IsNullOrWhiteSpace($userInput))
+        return $userInput.Trim()
     }
 }
 
 function Get-YesNoInput($prompt, $default = "Y") {
     do {
-        $input = Read-Host "$prompt [Y/n]"
-        if ([string]::IsNullOrWhiteSpace($input)) { $input = $default }
-        $input = $input.ToUpper()
-    } while ($input -notin @("Y", "YES", "N", "NO"))
-    return $input -in @("Y", "YES")
+        $userInput = Read-Host "$prompt [Y/n]"
+        if ([string]::IsNullOrWhiteSpace($userInput)) { $userInput = $default }
+        $userInput = $userInput.ToUpper()
+    } while ($userInput -notin @("Y", "YES", "N", "NO"))
+    return $userInput -in @("Y", "YES")
 }
 
 function Select-GameDataFolder {
@@ -749,12 +749,9 @@ if (-not $Author) {
     } else {
         $templateVars["UNITY_VERSION"] = Get-UserInput "Unity Version" "2022.3.6"
     }
-
-    Write-Host "`nTemplate variables configured:" -ForegroundColor Green
-    foreach ($var in $templateVars.GetEnumerator()) {
-        Write-Host "  $($var.Key): $($var.Value)"
-    }
 }
+
+Write-Host "`nTemplate variables configured:" -ForegroundColor Green
 foreach ($var in $templateVars.GetEnumerator()) {
     Write-Host "  $($var.Key): $($var.Value)"
 }

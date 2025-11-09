@@ -6,7 +6,6 @@
   <PropertyGroup>
     <GameName>{{GAME_DISPLAY_NAME}}</GameName>
     <GameAssembly>Assembly-CSharp</GameAssembly>
-    <GamePublisher>{{GAME_PUBLISHER}}</GamePublisher>
   </PropertyGroup>
   
   <!-- Set default configuration if not specified -->
