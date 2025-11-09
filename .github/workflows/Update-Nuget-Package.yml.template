@@ -6,7 +6,7 @@ on:
       game_version:
         description: 'Game version to package'
         required: true
-        default: '1.4.4'
+        default: '1.0.0'
         type: string
 
 env:
