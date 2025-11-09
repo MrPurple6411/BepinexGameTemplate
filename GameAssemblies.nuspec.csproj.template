@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PackageId>{{AUTHOR}}.{{GAME_NAME_SAFE}}.GameAssemblies</PackageId>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Title>{{GAME_DISPLAY_NAME}} Game Assemblies</Title>
+    <Description>Publicized and stripped game assemblies for {{GAME_DISPLAY_NAME}} mod development</Description>
+    <PackageProjectUrl>https://github.com/{{GITHUB_USERNAME}}/{{REPO_NAME}}</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/{{GITHUB_USERNAME}}/{{REPO_NAME}}</RepositoryUrl>
+    <PackageTags>{{GAME_NAME_SAFE}};bepinex;modding;assemblies</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>GameAssemblies.README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    
+    <!-- Add BepInEx NuGet source for restore -->
+    <RestoreAdditionalProjectSources>
+      https://nuget.bepinex.dev/v3/index.json
+    </RestoreAdditionalProjectSources>
+    
+    <!-- Disable automatic imports to avoid circular dependencies -->
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Include publicized assemblies in the package -->
+    <None Include="lib\**\*.dll" Pack="true" PackagePath="lib\" Condition="Exists('lib')" />
+    
+    <!-- Include build props/targets for consumers -->
+    <None Include="build\**\*" Pack="true" PackagePath="build\" />
+    
+    <!-- Include README for NuGet.org -->
+    <None Include="GameAssemblies.README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

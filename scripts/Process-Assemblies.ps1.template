@@ -1,0 +1,321 @@
+# Local Assembly Processing Script
+# This script handles the stripping and publicizing of game assemblies locally
+# Run this script when you need to update the assemblies for a new game version
+
+param(
+    [string]$GameVersion = "0.0.0-local",
+    [string]$GameDir = "",
+    [switch]$SkipStripping,
+    [switch]$SkipPublicizing,
+    [switch]$Help,
+    [switch]$AutoPublish,
+    [switch]$Force
+)
+
+if ($Help) {
+    Write-Output "Usage: ./scripts/Process-Assemblies.ps1 [-GameVersion <ver>] [-GameDir <path>] [-SkipStripping] [-SkipPublicizing] [-AutoPublish] [-Force]"
+    Write-Output "Defaults: GameVersion=0.0.0-local, auto-detect GameDir."
+    Write-Output ""
+    Write-Output "Options:"
+    Write-Output "  -AutoPublish   Automatically commit and tag if assemblies changed"
+    Write-Output "  -Force         Force reprocessing even if hashes match existing"
+    exit 0
+}
+
+# Colors for output
+$Red = [System.ConsoleColor]::Red
+$Green = [System.ConsoleColor]::Green
+$Yellow = [System.ConsoleColor]::Yellow
+$Cyan = [System.ConsoleColor]::Cyan
+
+function Write-ColoredOutput($Message, $Color) {
+    $originalColor = $Host.UI.RawUI.ForegroundColor
+    $Host.UI.RawUI.ForegroundColor = $Color
+    Write-Output $Message
+    $Host.UI.RawUI.ForegroundColor = $originalColor
+}
+
+Write-ColoredOutput "{{GAME_DISPLAY_NAME}} Assembly Processor" $Cyan
+Write-ColoredOutput "Game Version: $GameVersion" $Yellow
+Write-Output ""
+
+# Check if this version is already published (git tag exists on remote)
+Write-ColoredOutput "[INFO] Checking if assemblies-v$GameVersion already published..." $Cyan
+$tagName = "assemblies-v$GameVersion"
+try {
+    # Check if we're in a git repo and have a remote
+    $hasGit = Test-Path ".git"
+    if ($hasGit) {
+        $remoteExists = git remote 2>$null
+        if ($remoteExists -and -not $Force) {
+            # Check if tag exists on remote
+            $remoteTag = git ls-remote --tags origin 2>$null | Select-String "refs/tags/$tagName`$"
+            if ($remoteTag) {
+                Write-ColoredOutput "[SKIP] Tag $tagName already exists on remote" $Green
+                Write-Output "   This version has already been published."
+                Write-Output "   Use -Force to reprocess anyway."
+                exit 0
+            } else {
+                Write-ColoredOutput "[INFO] Tag $tagName not found on remote - proceeding" $Green
+            }
+        } else {
+            Write-ColoredOutput "[INFO] No remote configured or Force used - proceeding" $Yellow
+        }
+    } else {
+        Write-ColoredOutput "[INFO] Not a git repository - proceeding" $Yellow
+    }
+} catch {
+    Write-ColoredOutput "[WARN] Could not check remote tags: $($_.Exception.Message)" $Yellow
+    Write-ColoredOutput "[INFO] Proceeding with processing..." $Yellow
+}
+
+# Detect game directory if not provided
+if ([string]::IsNullOrEmpty($GameDir)) {
+    $possiblePaths = @(
+        "C:\Program Files (x86)\Steam\steamapps\common\{{GAME_DISPLAY_NAME}}",
+        "C:\Program Files\Steam\steamapps\common\{{GAME_DISPLAY_NAME}}",
+        ".\GameDir"
+    )
+    
+    foreach ($path in $possiblePaths) {
+        if (Test-Path $path) {
+            $GameDir = $path
+            Write-ColoredOutput "[OK] Found game directory: $GameDir" $Green
+            break
+        }
+    }
+    
+    if ([string]::IsNullOrEmpty($GameDir)) {
+        Write-ColoredOutput "[ERROR] Could not find game directory. Specify -GameDir." $Red
+        exit 1
+    }
+}
+
+$ManagedDir = Join-Path $GameDir "{{GAME_DATA_FOLDER}}\Managed"
+if (!(Test-Path $ManagedDir)) {
+    Write-ColoredOutput "[ERROR] Managed directory not found: $ManagedDir" $Red
+    Write-ColoredOutput "[HINT] Expected: GameDir\{{GAME_DATA_FOLDER}}\Managed\" $Yellow
+    exit 1
+}
+
+# Create output directories
+$LibDir = "lib\net48"
+$TempDir = "temp\processing"
+
+New-Item -ItemType Directory -Force -Path $LibDir | Out-Null
+New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
+
+Write-ColoredOutput "[OK] Created output directories (lib, ref, temp)" $Green
+
+# Check for required tools
+Write-ColoredOutput "[INFO] Checking for BepInEx.AssemblyPublicizer CLI..." $Yellow
+$hasPublicizer = $false
+try {
+    if (Get-Command assembly-publicizer -ErrorAction SilentlyContinue) { $hasPublicizer = $true }
+    if (-not $hasPublicizer) {
+        Write-ColoredOutput "[INFO] Installing BepInEx.AssemblyPublicizer.Cli (dotnet tool)..." $Yellow
+        dotnet tool install --global BepInEx.AssemblyPublicizer.Cli | Out-Null
+        if (Get-Command assembly-publicizer -ErrorAction SilentlyContinue) { $hasPublicizer = $true }
+    }
+    if ($hasPublicizer) { Write-ColoredOutput "[OK] AssemblyPublicizer ready" $Green } else { Write-ColoredOutput "[WARN] AssemblyPublicizer unavailable; will copy originals" $Yellow }
+} catch {
+    Write-ColoredOutput "[ERROR] Failed to initialize AssemblyPublicizer: $($_.Exception.Message)" $Red
+}
+
+# Only process game's core assemblies - Unity packages available on NuGet
+$PrimaryAssemblies = @(
+    @{ Name = "Assembly-CSharp.dll"; RequiresProcessing = $true },
+    @{ Name = "Assembly-CSharp-firstpass.dll"; RequiresProcessing = $true }
+)
+
+Write-Output ""
+Write-ColoredOutput "[INFO] Processing primary assemblies..." $Cyan
+
+foreach ($assembly in $PrimaryAssemblies) {
+    $sourcePath = Join-Path $ManagedDir $assembly.Name
+    $tempPath = Join-Path $TempDir $assembly.Name
+    $finalPath = Join-Path $LibDir $assembly.Name
+    
+    if (!(Test-Path $sourcePath)) {
+        Write-ColoredOutput "[WARN] Assembly not found: $($assembly.Name)" $Yellow
+        continue
+    }
+    
+    Write-ColoredOutput "[INFO] Processing $($assembly.Name)..." $Yellow
+    
+    # Step 1: Copy original
+    Copy-Item $sourcePath $tempPath
+    
+    # Step 2: Process with AssemblyPublicizer (publicize + optional strip)
+    if (-not $SkipStripping -and $hasPublicizer -and $assembly.RequiresProcessing) {
+        Write-ColoredOutput "   [STEP] Publicizing & stripping with AssemblyPublicizer..." $Yellow
+        $outPath = $finalPath
+        # assembly-publicizer usage:
+        #   assembly-publicizer <input.dll> --strip        -> publicize + strip
+        #   assembly-publicizer <input.dll> --strip-only   -> strip only
+        # Passing just the input file publicizes without stripping.
+        $apArgs = @("$tempPath","--strip")
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $result = & assembly-publicizer @apArgs 2>&1
+        $code = $LASTEXITCODE
+        $sw.Stop()
+        # assembly-publicizer outputs alongside original name with -publicized suffix unless using MSBuild; detect that
+        $publicizedCandidate = Join-Path (Split-Path $tempPath -Parent) ((Split-Path $tempPath -Leaf).Replace('.dll','-publicized.dll'))
+        $finalCandidate = if (Test-Path $publicizedCandidate) { $publicizedCandidate } else { $tempPath }
+        Copy-Item $finalCandidate $outPath -Force
+
+        if ($code -eq 0 -and (Test-Path $outPath)) {
+            $origSize = (Get-Item $sourcePath).Length
+            $newSize = (Get-Item $outPath).Length
+            $pct = if ($origSize -gt 0) { [math]::Round((1 - ($newSize / $origSize))*100,2) } else { 0 }
+            Write-ColoredOutput "   [OK] Processed in $([int]$sw.Elapsed.TotalSeconds)s (orig: $origSize bytes -> new: $newSize bytes, saved: $pct%)" $Green
+        } else {
+            Write-ColoredOutput "   [ERROR] AssemblyPublicizer failed (exit $code). Copying original." $Red
+            Write-Output $result | Select-Object -First 12
+            Copy-Item $sourcePath $finalPath -Force
+        }
+    } else {
+        Copy-Item $sourcePath $finalPath -Force
+        Write-ColoredOutput "   [INFO] Copied original (no processing)" $Yellow
+    }
+}
+
+# Check if assemblies changed by comparing hashes AFTER processing
+Write-Output ""
+Write-ColoredOutput "[INFO] Checking if processed assemblies changed..." $Cyan
+
+function Get-FileHashSafe($FilePath) {
+    if (Test-Path $FilePath) {
+        return (Get-FileHash $FilePath -Algorithm SHA256).Hash
+    }
+    return $null
+}
+
+# Create/load hash tracking file
+$hashFile = "assembly-hashes.json"
+$currentHashes = @{}
+$previousHashes = @{}
+
+if (Test-Path $hashFile) {
+    try {
+        $previousHashes = Get-Content $hashFile | ConvertFrom-Json -AsHashtable
+    } catch {
+        Write-ColoredOutput "[WARN] Could not read previous hashes, treating as new" $Yellow
+        $previousHashes = @{}
+    }
+}
+
+# Calculate current hashes of PROCESSED assemblies
+$assembliesChanged = $false
+foreach ($assembly in $PrimaryAssemblies) {
+    $libPath = Join-Path $LibDir $assembly.Name
+    if (Test-Path $libPath) {
+        $currentHash = Get-FileHashSafe $libPath
+        $currentHashes[$assembly.Name] = $currentHash
+        
+        $previousHash = $previousHashes[$assembly.Name]
+        if ($previousHash -ne $currentHash) {
+            $assembliesChanged = $true
+            Write-ColoredOutput "   [CHANGED] $($assembly.Name) (hash: $($currentHash.Substring(0,8))...)" $Yellow
+        } else {
+            Write-ColoredOutput "   [SAME] $($assembly.Name) (hash: $($currentHash.Substring(0,8))...)" $Green
+        }
+    }
+}
+
+# Save current hashes for next run
+$currentHashes | ConvertTo-Json | Set-Content $hashFile
+
+# Clean up temp directory
+Remove-Item $TempDir -Recurse -Force
+
+Write-ColoredOutput "[SUMMARY]" $Cyan
+Write-Output "   - Primary assemblies processed: $(($PrimaryAssemblies | Where-Object { Test-Path (Join-Path $LibDir $_.Name) }).Count)/$($PrimaryAssemblies.Count)"
+Write-Output "   - Tool: BepInEx.AssemblyPublicizer.Cli (publicize + strip)"
+Write-Output "   - Output location: lib/ directory"
+if ($assembliesChanged) {
+    Write-Output "   - Status: CHANGED - Ready for commit/publish"
+} else {
+    Write-Output "   - Status: UNCHANGED - No action needed"
+}
+Write-Output ""
+
+Write-ColoredOutput "[NEXT STEPS]" $Cyan
+if ($assembliesChanged) {
+    Write-Output "   📝 Assemblies have changed:"
+    Write-Output "   1. Review the processed assemblies in lib/net48/"
+    Write-Output "   2. Test with a mod to ensure assemblies work correctly"  
+    Write-Output "   3. Auto-publish: .\scripts\Process-Assemblies.ps1 -GameVersion $GameVersion -AutoPublish"
+    Write-Output "   4. Manual: git add lib/; git commit; git tag assemblies-v$GameVersion; git push --tags"
+} else {
+    Write-Output "   ✅ No changes detected - assemblies are up to date"
+    Write-Output "   💡 Use -Force to reprocess anyway"
+}
+
+Write-Output ""
+Write-ColoredOutput "[LEGAL]" $Yellow
+Write-Output "   These processed assemblies are stripped and publicized for modding only."
+Write-Output "   - STRIPPED: Unnecessary code and metadata removed"
+Write-Output "   - PUBLICIZED: Only modding APIs exposed" 
+Write-Output "   - LEGAL: Minimal code redistribution for development purposes"
+Write-Output "   Original game files remain untouched and are not redistributed."
+
+# Auto-publish logic (only if assemblies actually changed)
+if ($AutoPublish -and $assembliesChanged) {
+    Write-Output ""
+    Write-ColoredOutput "[AUTO-PUBLISH] Starting automated git workflow..." $Cyan
+    
+    # Check if we're in a git repo
+    if (-not (Test-Path ".git")) {
+        Write-ColoredOutput "[ERROR] Not in a git repository. Cannot auto-publish." $Red
+        exit 1
+    }
+    
+    # Check for uncommitted changes in lib/
+    $gitStatus = git status --porcelain lib/
+    if ($gitStatus) {
+        Write-ColoredOutput "[INFO] Committing processed assemblies..." $Yellow
+        git add lib/ $hashFile
+        git commit -m "Process assemblies for game version $GameVersion
+
+- Assembly-CSharp.dll: $(($currentHashes['Assembly-CSharp.dll']).Substring(0,8))...
+- Assembly-CSharp-firstpass.dll: $(($currentHashes['Assembly-CSharp-firstpass.dll']).Substring(0,8))...
+
+Auto-generated by Process-Assemblies.ps1"
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColoredOutput "[ERROR] Git commit failed" $Red
+            exit 1
+        }
+    }
+    
+    # Create assembly tag
+    $tagName = "assemblies-v$GameVersion"
+    Write-ColoredOutput "[INFO] Creating tag: $tagName" $Yellow
+    
+    # Check if tag already exists
+    $existingTag = git tag -l $tagName
+    if ($existingTag) {
+        Write-ColoredOutput "[WARN] Tag $tagName already exists. Skipping tag creation." $Yellow
+    } else {
+        git tag $tagName
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColoredOutput "[ERROR] Git tag creation failed" $Red
+            exit 1
+        }
+    }
+    
+    # Push to trigger GitHub Actions
+    Write-ColoredOutput "[INFO] Pushing to trigger GitHub Actions..." $Yellow
+    git push --tags
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-ColoredOutput "[SUCCESS] Auto-publish initiated!" $Green
+        Write-Output "   - Assemblies committed and tagged"
+        Write-Output "   - GitHub Actions will build and publish NuGet package"
+        Write-Output "   - Check: https://github.com/{{GITHUB_USERNAME}}/{{REPO_NAME}}/actions"
+    } else {
+        Write-ColoredOutput "[ERROR] Git push failed" $Red
+        exit 1
+    }
+}

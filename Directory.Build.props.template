@@ -1,0 +1,107 @@
+<Project>
+  <!-- Directory.Build.props -->
+  <!-- This file is automatically imported by all projects in this directory tree -->
+  
+  <!-- Game Information -->
+  <PropertyGroup>
+    <GameName>{{GAME_DISPLAY_NAME}}</GameName>
+    <GameAssembly>Assembly-CSharp</GameAssembly>
+    <GamePublisher>{{GAME_PUBLISHER}}</GamePublisher>
+  </PropertyGroup>
+  
+  <!-- Set default configuration if not specified -->
+  <PropertyGroup>
+    <Configuration Condition="$(Configuration) == ''">Debug</Configuration>
+    <Platform Condition="$(Platform) == ''">AnyCPU</Platform>
+  </PropertyGroup>
+
+  <!-- Build Configuration -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
+    
+    <!-- BepInX Configuration -->
+    <BepInExVersion>{{BEPINX_VERSION}}</BepInExVersion>
+    
+    <!-- Output Configuration -->
+    <OutputType>Library</OutputType>
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>$(SolutionDir)bin\$(Configuration)\$(MSBuildProjectName)\</OutputPath>
+  </PropertyGroup>
+  
+  <!-- Assembly Metadata -->
+  <PropertyGroup>
+    <AssemblyTitle>$(MSBuildProjectName)</AssemblyTitle>
+    <AssemblyDescription>BepInX mod for $(GameName)</AssemblyDescription>
+    <AssemblyCompany>{{AUTHOR}}</AssemblyCompany>
+    <AssemblyProduct>$(GameName) Mod</AssemblyProduct>
+    <AssemblyCopyright>Copyright © {{AUTHOR}} 2025</AssemblyCopyright>
+  </PropertyGroup>
+  
+  <!-- Game Assembly Paths -->
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == '' AND Exists('C:\Program Files (x86)\Steam\steamapps\common\{{GAME_DISPLAY_NAME}}')">C:\Program Files (x86)\Steam\steamapps\common\{{GAME_DISPLAY_NAME}}</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' AND Exists('C:\Program Files\Steam\steamapps\common\{{GAME_DISPLAY_NAME}}')">C:\Program Files\Steam\steamapps\common\{{GAME_DISPLAY_NAME}}</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' AND Exists('$(MSBuildThisFileDirectory)..\GameDir')">$(MSBuildThisFileDirectory)..\GameDir</GameDir>
+    
+    <ManagedDir>$(GameDir)\{{GAME_DATA_FOLDER}}\Managed</ManagedDir>
+    <BepInExDir>$(GameDir)\BepInX</BepInExDir>
+    <PluginsDir>$(BepInExDir)\plugins</PluginsDir>
+  </PropertyGroup>
+  
+  <!-- BepInX Plugin Configuration -->
+  <PropertyGroup>
+    <PluginGuid Condition="'$(PluginGuid)' == ''">{{AUTHOR}}.{{GAME_NAME_SAFE}}.$(MSBuildProjectName)</PluginGuid>
+    <PluginName Condition="'$(PluginName)' == ''">$(MSBuildProjectName)</PluginName>
+    <PluginVersion Condition="'$(PluginVersion)' == ''">1.0.0</PluginVersion>
+  </PropertyGroup>
+  
+  <!-- Git Tag Version Extraction -->
+  <PropertyGroup>
+    <GitTag Condition="'$(GITHUB_REF_TYPE)' == 'tag'">$(GITHUB_REF_NAME)</GitTag>
+    
+    <!-- Individual mod tag: ModName-v1.2.3 -->
+    <IsIndividualModTag Condition="$(GitTag.Contains('-v')) AND $(GitTag.StartsWith('$(MSBuildProjectName)-v'))">true</IsIndividualModTag>
+    <ExtractedVersion Condition="'$(IsIndividualModTag)' == 'true'">$(GitTag.Substring($([MSBuild]::Add($(MSBuildProjectName.Length), 2))))</ExtractedVersion>
+    
+    <!-- Global tag: v1.2.3 -->
+    <IsGlobalTag Condition="$(GitTag.StartsWith('v')) AND !$(GitTag.Contains('-'))">true</IsGlobalTag>
+    <ExtractedVersion Condition="'$(IsGlobalTag)' == 'true'">$(GitTag.Substring(1))</ExtractedVersion>
+    
+    <!-- Override plugin version if tag matches -->
+    <PluginVersion Condition="'$(ExtractedVersion)' != ''">$(ExtractedVersion)</PluginVersion>
+  </PropertyGroup>
+  
+  <!-- Global NuGet Configuration -->
+  <PropertyGroup>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+  
+  <!-- Enable Source Link for debugging -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  
+  <!-- Package References (Core dependencies for BepInX plugins) -->
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" IncludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.1.0" PrivateAssets="all" />
+    <PackageReference Include="UnityEngine.Modules" Version="{{UNITY_VERSION}}" IncludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="{{AUTHOR}}.{{GAME_NAME_SAFE}}.GameAssemblies" Version="*" IncludeAssets="compile" PrivateAssets="all" 
+                      Condition="'$(MSBuildProjectName)' != 'GameAssemblies.nuspec' AND '$(PackageId)' != '{{AUTHOR}}.{{GAME_NAME_SAFE}}.GameAssemblies'" />
+  </ItemGroup>
+  
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1" PrivateAssets="All"/>
+  </ItemGroup>
+</Project>

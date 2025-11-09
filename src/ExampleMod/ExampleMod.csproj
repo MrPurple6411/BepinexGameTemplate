@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  
+  <PropertyGroup>
+    <AssemblyTitle>Example Mod</AssemblyTitle>
+    <AssemblyDescription>An example BepInX mod for {{GAME_DISPLAY_NAME}} demonstrating the build system</AssemblyDescription>
+    
+    <!-- BepInEx Plugin Metadata (auto-generates MyPluginInfo) -->
+    <PluginGuid>{{AUTHOR}}.{{GAME_NAME}}.{{EXAMPLE_MOD_NAME}}</PluginGuid>
+    <PluginName>Example Mod</PluginName>
+    <PluginVersion>1.0.1</PluginVersion>
+  </PropertyGroup>
+  
+</Project>

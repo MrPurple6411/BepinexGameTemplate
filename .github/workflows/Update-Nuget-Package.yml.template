@@ -1,0 +1,92 @@
+name: Package Game Assemblies
+
+on:
+  workflow_dispatch:
+    inputs:
+      game_version:
+        description: 'Game version to package'
+        required: true
+        default: '1.4.4'
+        type: string
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  package-assemblies:
+    name: Package Pre-processed Assemblies
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+        
+    - name: Verify Assemblies Exist
+      run: |
+        echo "Checking for pre-processed assemblies..."
+        if [ ! -d "lib/net48" ]; then
+          echo "❌ lib/net48/ directory not found"
+          echo "Please add stripped and publicized assemblies to lib/net48/ before running this workflow"
+          exit 1
+        fi
+        
+        if [ ! -f "lib/net48/Assembly-CSharp.dll" ]; then
+          echo "❌ Assembly-CSharp.dll not found in lib/net48/"
+          echo "Please add the stripped and publicized Assembly-CSharp.dll"
+          exit 1
+        fi
+        
+        echo "✅ Pre-processed assemblies found"
+        echo "📁 Contents of lib/net48/:"
+        ls -la lib/net48/
+        
+        if [ -d "ref/net48" ]; then
+          echo "📁 Contents of ref/net48/:"
+          ls -la ref/net48/
+        fi
+      
+    - name: Create NuGet Package Props
+      run: |
+        # Ensure build directory exists
+        mkdir -p build
+        
+        # Create the props file for package consumers
+        cat > "build/{{AUTHOR}}.{{GAME_NAME_SAFE}}.GameAssemblies.props" << 'EOF'
+        <Project>
+          <ItemGroup>
+            <Reference Include="Assembly-CSharp" HintPath="$(MSBuildThisFileDirectory)..\lib\net48\Assembly-CSharp.dll" Private="false" />
+            <Reference Include="Assembly-CSharp-firstpass" HintPath="$(MSBuildThisFileDirectory)..\lib\net48\Assembly-CSharp-firstpass.dll" Private="false" Condition="Exists('$(MSBuildThisFileDirectory)..\lib\net48\Assembly-CSharp-firstpass.dll')" />
+            <Reference Include="Unity.Timeline" HintPath="$(MSBuildThisFileDirectory)..\ref\net48\Unity.Timeline.dll" Private="false" Condition="Exists('$(MSBuildThisFileDirectory)..\ref\net48\Unity.Timeline.dll')" />
+            <Reference Include="Unity.TextMeshPro" HintPath="$(MSBuildThisFileDirectory)..\ref\net48\Unity.TextMeshPro.dll" Private="false" Condition="Exists('$(MSBuildThisFileDirectory)..\ref\net48\Unity.TextMeshPro.dll')" />
+            <Reference Include="Unity.Postprocessing.Runtime" HintPath="$(MSBuildThisFileDirectory)..\ref\net48\Unity.Postprocessing.Runtime.dll" Private="false" Condition="Exists('$(MSBuildThisFileDirectory)..\ref\net48\Unity.Postprocessing.Runtime.dll')" />
+            <Reference Include="Steamworks.NET" HintPath="$(MSBuildThisFileDirectory)..\ref\net48\Steamworks.NET.dll" Private="false" Condition="Exists('$(MSBuildThisFileDirectory)..\ref\net48\Steamworks.NET.dll')" />
+          </ItemGroup>
+        </Project>
+        EOF
+        
+        echo "✅ Created NuGet package props file"
+      
+    - name: Build NuGet Package
+      run: |
+        dotnet pack GameAssemblies.nuspec.csproj --configuration Release \
+          -p:PackageVersion=${{ github.event.inputs.game_version || '1.0.0' }} \
+          --output nupkg/
+          
+    - name: Upload Package Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: game-assemblies-nuget
+        path: nupkg/*.nupkg
+        
+    - name: Publish to NuGet (if manual trigger)
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        dotnet nuget push "nupkg/*.nupkg" \
+          --api-key ${{ secrets.NUGET_API_KEY }} \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
